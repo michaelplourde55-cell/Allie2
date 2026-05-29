@@ -40,11 +40,21 @@
     --card:rgba(255,251,244,.72); --card-line:rgba(120,84,48,.12);
     --shadow:0 24px 60px -28px rgba(122,43,0,.32); --energy:0.22;
     --glyph-w:'Fraunces', Georgia, serif; --ui:'Hanken Grotesk', system-ui, sans-serif;
+    --bg-grad:radial-gradient(120% 90% at 50% 42%, #FFF4E9 0%, #FBF5EC 40%, #F4ECDF 100%);
+  }
+  /* ===== THÈME SOMBRE DRAMATIQUE ===== */
+  body.theme-dark{
+    --ink:#F5ECE2; --ink-soft:#B9AA9A; --ink-faint:#7C6F62;
+    --line:rgba(255,220,180,.12);
+    --card:rgba(38,28,22,.66); --card-line:rgba(255,200,150,.14);
+    --shadow:0 30px 70px -28px rgba(0,0,0,.7);
+    --bg-grad:radial-gradient(120% 95% at 50% 44%, #2A1B12 0%, #1A1009 45%, #0E0805 100%);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{font-family:var(--ui);color:var(--ink);overflow:hidden;
-    background:radial-gradient(120% 90% at 50% 42%, var(--champagne) 0%, var(--cream-2) 40%, var(--cream) 100%);
+    background:var(--bg-grad);
+    transition:color .6s ease, background .6s ease;
     -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
   #stage{position:fixed;inset:0}
 
@@ -212,7 +222,48 @@
     <div class="ctrl hangup"><button id="hangup"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 14.3a16 16 0 0 1-3-4.4l1.3-1.6a2 2 0 0 0 .3-2.2A12 12 0 0 1 8.6 3 2 2 0 0 0 6.7 1.7H4A2 2 0 0 0 2 4a18 18 0 0 0 .3 3"/><path d="M22 2 2 22"/><path d="M14 9.5a16 16 0 0 1 6.8 4 2 2 0 0 1 .2 2.7l-.9 1.1"/></svg></button>Raccrocher</div>
     <div class="ctrl"><button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 10h12M4 15h16M4 20h8"/></svg></button>Transcription</div>
   </div>
+
+  <!-- ===== PANNEAU D'ESSAI (à retirer pour la prod) ===== -->
+  <div id="panel">
+    <button id="panelToggle" title="Réglages">⚙</button>
+    <div id="panelBody">
+      <div class="pgrp"><label>Ambiance</label>
+        <div class="pseg" id="segTheme">
+          <button data-theme="dark" class="on">Sombre</button>
+          <button data-theme="cream">Crème</button>
+        </div>
+      </div>
+      <div class="pgrp"><label>Fini métal</label>
+        <div class="pseg pwrap" id="segFinish">
+          <button data-f="chrome">Chromé</button>
+          <button data-f="satin" class="on">Satiné</button>
+          <button data-f="enamel">Émail</button>
+          <button data-f="bronze">Bronze</button>
+          <button data-f="molten">Fusion</button>
+        </div>
+      </div>
+      <div class="pgrp"><label>Lueur au repos <span id="glowVal">0.10</span></label>
+        <input type="range" id="glowRange" min="0" max="0.6" step="0.02" value="0.10">
+      </div>
+    </div>
+  </div>
 </div>
+
+<style>
+  #panel{position:fixed;right:18px;bottom:18px;z-index:20;font-family:var(--ui);
+    background:rgba(20,14,10,.82);color:#F5ECE2;border:1px solid rgba(255,200,150,.18);
+    border-radius:16px;backdrop-filter:blur(12px);box-shadow:0 20px 50px -20px rgba(0,0,0,.6);overflow:hidden}
+  #panelToggle{width:44px;height:44px;border:none;background:transparent;color:#FFB877;font-size:20px;cursor:pointer;display:block}
+  #panelBody{display:none;padding:6px 16px 16px;width:268px}
+  #panel.open #panelBody{display:block} #panel.open #panelToggle{border-bottom:1px solid rgba(255,200,150,.14)}
+  .pgrp{margin-top:14px} .pgrp label{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#B9AA9A;margin-bottom:7px}
+  .pseg{display:flex;gap:6px} .pseg.pwrap{flex-wrap:wrap}
+  .pseg button{flex:1;min-width:56px;padding:8px 6px;border:1px solid rgba(255,200,150,.2);background:transparent;
+    color:#E9DDD0;border-radius:9px;font-size:12.5px;cursor:pointer;font-family:var(--ui);transition:.15s}
+  .pseg button.on{background:linear-gradient(180deg,#FF7A1F,#EC5E00);color:#fff;border-color:transparent}
+  #glowRange{width:100%;accent-color:#EC5E00}
+  #glowVal{color:#FFB877;letter-spacing:0}
+</style>
 
 <script type="module">
 import * as THREE from 'three';
@@ -249,63 +300,110 @@ $('#microcopy').textContent = REAL ? 'Appel vocal réel · micro requis' : 'Dém
 
 /* ===================== THREE.JS ===================== */
 let renderer, scene, camera, composer, bloom, pivot=null, medallion=null, medallionMat=null;
+let pmrem, keyLight, fillLight, ambLight;
 let W=innerWidth, H=innerHeight, DPR=Math.min(2, devicePixelRatio||1);
 const pointer={x:0,y:0,tx:0,ty:0};
 const HERO_Z=4.6, CALL_Z=4.0; let camZ=HERO_Z, camZTarget=HERO_Z;
 
-function warmEnvTexture(){
-  // environnement équirectangulaire chaud (réflexions ambrées, sans fichier HDRI)
-  const c=document.createElement('canvas'); c.width=1024; c.height=512;
-  const x=c.getContext('2d');
-  const g=x.createLinearGradient(0,0,0,512);
-  g.addColorStop(0,'#fff6ec'); g.addColorStop(.45,'#ffd9ab'); g.addColorStop(.7,'#c9742f'); g.addColorStop(1,'#3a1c08');
-  x.fillStyle=g; x.fillRect(0,0,1024,512);
-  // "key light" douce
-  const k=x.createRadialGradient(360,150,10,360,150,260);
-  k.addColorStop(0,'rgba(255,255,255,.95)'); k.addColorStop(1,'rgba(255,255,255,0)');
-  x.fillStyle=k; x.fillRect(0,0,1024,512);
-  const t=new THREE.CanvasTexture(c); t.mapping=THREE.EquirectangularReflectionMapping; t.colorSpace=THREE.SRGBColorSpace;
-  return t;
+/* ===================== LOOKS : AMBIANCES + FINIS ===================== */
+// Environnement équirectangulaire procédural. Des "spots" lumineux créent les
+// reflets qui balaient le métal quand il tourne. Sombre = fond noir + spots
+// chauds intenses (le A ressort). Crème = studio clair et doux.
+function envTexture(theme){
+  const c=document.createElement('canvas'); c.width=1024; c.height=512; const x=c.getContext('2d');
+  if(theme==='dark'){
+    const g=x.createLinearGradient(0,0,0,512);
+    g.addColorStop(0,'#241a14'); g.addColorStop(.5,'#140d08'); g.addColorStop(1,'#070402');
+    x.fillStyle=g; x.fillRect(0,0,1024,512);
+    spot(x,300,150,260,'rgba(255,238,210,1)');     // key chaud fort
+    spot(x,760,210,200,'rgba(255,150,60,.9)');      // rim orange
+    spot(x,540,430,180,'rgba(120,90,255,.25)');     // contre-jour froid (sépare du fond)
+  }else{ // cream studio
+    const g=x.createLinearGradient(0,0,0,512);
+    g.addColorStop(0,'#fff6ec'); g.addColorStop(.45,'#ffe7c8'); g.addColorStop(.72,'#e8b787'); g.addColorStop(1,'#9a5a28');
+    x.fillStyle=g; x.fillRect(0,0,1024,512);
+    spot(x,330,150,300,'rgba(255,255,255,.95)');
+    spot(x,780,300,220,'rgba(255,210,160,.8)');
+  }
+  const t=new THREE.CanvasTexture(c); t.mapping=THREE.EquirectangularReflectionMapping; t.colorSpace=THREE.SRGBColorSpace; return t;
 }
-function bgTexture(){
+function spot(x,cx,cy,r,col){ const g=x.createRadialGradient(cx,cy,2,cx,cy,r);
+  g.addColorStop(0,col); g.addColorStop(1,col.replace(/[\d.]+\)$/,'0)')); x.fillStyle=g; x.fillRect(0,0,1024,512); }
+
+function bgTexture(theme){
   const c=document.createElement('canvas'); c.width=256; c.height=256; const x=c.getContext('2d');
-  const g=x.createRadialGradient(128,108,8,128,108,184);
-  g.addColorStop(0,'#FFF4E9'); g.addColorStop(.4,'#FBF5EC'); g.addColorStop(1,'#F1E7D7');
+  const g=x.createRadialGradient(128,116,8,128,116,190);
+  if(theme==='dark'){ g.addColorStop(0,'#2A1B12'); g.addColorStop(.5,'#160d07'); g.addColorStop(1,'#0B0603'); }
+  else { g.addColorStop(0,'#FFF4E9'); g.addColorStop(.4,'#FBF5EC'); g.addColorStop(1,'#F1E7D7'); }
   x.fillStyle=g; x.fillRect(0,0,256,256);
   const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
 }
 
+// Finis métal interchangeables (tu peux tous les essayer dans le panneau)
+const FINISHES = {
+  'chrome'  : { label:'Chromé poli',     metalness:1.0, roughness:0.08, clearcoat:1.0, clearcoatRoughness:0.06, env:1.6, emissive:0.06 },
+  'satin'   : { label:'Métal satiné',    metalness:0.9, roughness:0.35, clearcoat:0.3, clearcoatRoughness:0.4,  env:1.1, emissive:0.10 },
+  'enamel'  : { label:'Émail orange',    metalness:0.25,roughness:0.22, clearcoat:1.0, clearcoatRoughness:0.12, env:0.9, emissive:0.14 },
+  'bronze'  : { label:'Bronze chaud',    metalness:1.0, roughness:0.30, clearcoat:0.2, clearcoatRoughness:0.5,  env:1.2, emissive:0.10 },
+  'molten'  : { label:'Métal en fusion', metalness:0.7, roughness:0.25, clearcoat:0.5, clearcoatRoughness:0.3,  env:1.0, emissive:0.45 },
+};
+let currentTheme='dark', currentFinish='satin';
+
+function applyLook(theme, finish){
+  currentTheme=theme; currentFinish=finish;
+  document.body.classList.toggle('theme-dark', theme==='dark');
+  if(!renderer) return;
+  // env + fond
+  scene.background = bgTexture(theme);
+  if(scene.environment) scene.environment.dispose?.();
+  scene.environment = pmrem.fromEquirectangular(envTexture(theme)).texture;
+  // lumières (clés selon thème)
+  keyLight.color.set(theme==='dark'?0xffe8cc:0xfff0e0); keyLight.intensity = theme==='dark'?3.2:2.4;
+  fillLight.color.set(theme==='dark'?0xff7a2a:0xffd9b0); fillLight.intensity = theme==='dark'?1.2:0.8;
+  ambLight.intensity = theme==='dark'?0.18:0.5;
+  // matériau
+  const f=FINISHES[finish];
+  if(medallionMat){
+    medallionMat.metalness=f.metalness; medallionMat.roughness=f.roughness;
+    medallionMat.clearcoat=f.clearcoat; medallionMat.clearcoatRoughness=f.clearcoatRoughness;
+    medallionMat.envMapIntensity=f.env;
+    BASE_EMISSIVE = f.emissive;
+  }
+  // bloom plus fort en sombre
+  if(bloom){ bloom.strength = (theme==='dark'?1.1:0.6); }
+}
+let BASE_EMISSIVE = 0.10;
+
+
 function initThree(){
   renderer=new THREE.WebGLRenderer({canvas:$('#three'), antialias:true});
   renderer.setPixelRatio(DPR); renderer.setSize(W,H);
-  renderer.toneMapping=THREE.NeutralToneMapping; renderer.toneMappingExposure=1.0;  // Neutral = garde le orange de la marque (ACES le virait au jaune)
+  renderer.toneMapping=THREE.NeutralToneMapping; renderer.toneMappingExposure=1.0;  // Neutral = garde le orange de la marque
   renderer.outputColorSpace=THREE.SRGBColorSpace;
 
-  scene=new THREE.Scene(); scene.background=bgTexture();
-  const pmrem=new THREE.PMREMGenerator(renderer);
-  scene.environment=pmrem.fromEquirectangular(warmEnvTexture()).texture;
+  scene=new THREE.Scene();
+  pmrem=new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
 
   camera=new THREE.PerspectiveCamera(35, W/H, 0.1, 100); camera.position.set(0,0,HERO_Z);
 
-  // lumières d'appoint chaudes (modèlent le biseau au-delà de l'env)
-  const key=new THREE.DirectionalLight(0xfff0e0, 2.4); key.position.set(-3,4,5); scene.add(key);
-  const fill=new THREE.DirectionalLight(0xffd9b0, 0.8); fill.position.set(4,-1,3); scene.add(fill);
-  scene.add(new THREE.AmbientLight(0xffe8cf, 0.5));
+  // lumières (réglées par applyLook selon le thème)
+  keyLight=new THREE.DirectionalLight(0xffe8cc, 3.2); keyLight.position.set(-3,4,5); scene.add(keyLight);
+  fillLight=new THREE.DirectionalLight(0xff7a2a, 1.2); fillLight.position.set(4,-1,3); scene.add(fillLight);
+  ambLight=new THREE.AmbientLight(0xffe8cf, 0.18); scene.add(ambLight);
 
   pivot=new THREE.Group(); scene.add(pivot);
 
   // ---- chargement de TON médaillon (GLB meshopt) ----
   const mat=new THREE.MeshPhysicalMaterial({
-    color:new THREE.Color('#EC5E00'), metalness:CONFIG.METALNESS, roughness:CONFIG.ROUGHNESS,
-    clearcoat:0.15, clearcoatRoughness:0.45, envMapIntensity:0.85,
-    emissive:new THREE.Color('#EC5E00'), emissiveIntensity:CONFIG.EMISSIVE_BASE,
+    color:new THREE.Color('#EC5E00'), metalness:0.9, roughness:0.35,
+    clearcoat:0.3, clearcoatRoughness:0.4, envMapIntensity:1.1,
+    emissive:new THREE.Color('#EC5E00'), emissiveIntensity:0.1,
   });
   medallionMat=mat;
   const loader=new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
   loader.load(CONFIG.GLB_URL, (gltf)=>{
     medallion=gltf.scene;
     medallion.traverse(o=>{ if(o.isMesh){ o.material=mat; o.castShadow=o.receiveShadow=false; } });
-    // recentrer + mettre à l'échelle (cadrage stable)
     const box=new THREE.Box3().setFromObject(medallion);
     const c=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3());
     const s=2.0/Math.max(size.x,size.y);
@@ -320,6 +418,8 @@ function initThree(){
   bloom=new UnrealBloomPass(new THREE.Vector2(W,H), CONFIG.BLOOM_STRENGTH, CONFIG.BLOOM_RADIUS, CONFIG.BLOOM_THRESHOLD);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
+
+  applyLook(currentTheme, currentFinish);   // ambiance + fini initiaux
 
   addEventListener('pointermove', e=>{ pointer.tx=(e.clientX/W-.5); pointer.ty=(e.clientY/H-.5); });
 }
@@ -362,10 +462,10 @@ const fx=$('#fx'), fctx=fx.getContext('2d'); const center={x:W/2,y:H*0.5};
 let particles=[], rings=[], emitAcc=0;
 function sizeFx(){ fx.width=W*DPR; fx.height=H*DPR; fx.style.width=W+'px'; fx.style.height=H+'px';
   fctx.setTransform(DPR,0,0,DPR,0,0); initParticles(); }
-function initParticles(){ particles=[]; for(let i=0;i<60;i++){ const a=Math.random()*Math.PI*2,
-  d=120+Math.random()*Math.min(W,H)*0.5; particles.push({x:center.x+Math.cos(a)*d,y:center.y+Math.sin(a)*d,
-  r:0.6+Math.random()*2.2,vy:-(0.08+Math.random()*0.22),vx:(Math.random()-0.5)*0.12,ph:Math.random()*6.28,
-  a:0.15+Math.random()*0.35}); } }
+function initParticles(){ particles=[]; for(let i=0;i<110;i++){ const a=Math.random()*Math.PI*2,
+  d=110+Math.random()*Math.min(W,H)*0.55; particles.push({x:center.x+Math.cos(a)*d,y:center.y+Math.sin(a)*d,
+  r:0.7+Math.random()*2.6,vy:-(0.10+Math.random()*0.28),vx:(Math.random()-0.5)*0.14,ph:Math.random()*6.28,
+  a:0.28+Math.random()*0.45}); } }
 function drawFx(now,dt){
   fctx.clearRect(0,0,W,H);
   const R=Math.min(W,H)*0.30*(0.85+energy*0.55);
@@ -396,16 +496,20 @@ function frame(now){
   document.documentElement.style.setProperty('--energy',energy.toFixed(3));
 
   if(renderer){
-    // parallaxe douce + respiration + réaction voix sur le médaillon
+    // parallaxe douce + respiration + ROTATION CONTINUE (repos vivant)
     pointer.x+=(pointer.tx-pointer.x)*0.05; pointer.y+=(pointer.ty-pointer.y)*0.05;
     if(pivot){
       const breathe=1+0.022*Math.sin(now/2400)+ (state==='call'? energy*0.06 : 0);
       pivot.scale.setScalar(breathe);
-      pivot.rotation.y = Math.PI + pointer.x*0.5 + Math.sin(now/5200)*0.06;  // +PI = face avant
-      pivot.rotation.x = -pointer.y*0.4 + Math.sin(now/6100)*0.03;
+      // rotation lente permanente -> les reflets balaient le métal
+      pivot.rotation.y = Math.PI + pointer.x*0.45 + Math.sin(now/4200)*0.20;
+      pivot.rotation.x = -pointer.y*0.35 + Math.sin(now/6100)*0.05;
     }
-    if(medallionMat){ medallionMat.emissiveIntensity=CONFIG.EMISSIVE_BASE+energy*0.8; }
-    bloom.strength=CONFIG.BLOOM_STRENGTH+energy*0.5;
+    // émissif : base du fini + pulsation au repos + énergie en appel
+    const pulse = 0.045*(0.5+0.5*Math.sin(now/1300));
+    if(medallionMat){ medallionMat.emissiveIntensity = BASE_EMISSIVE + pulse + energy*0.8; }
+    const bloomBase = (currentTheme==='dark'?1.1:0.6);
+    bloom.strength = bloomBase + energy*0.6;
     camZTarget = state==='call'?CALL_Z:HERO_Z; camZ+=(camZTarget-camZ)*0.06; camera.position.z=camZ;
     composer.render();
   }
@@ -488,6 +592,17 @@ $('#three').addEventListener('mouseleave', ()=>{ if(state==='hover') state='idle
 let muted=false;
 $('#muteBtn').onclick=()=>{ muted=!muted; try{ conv?.setMicMuted?.(muted); }catch(e){}
   $('#muteLbl').textContent = muted?'Micro coupé':'Micro activé'; $('#muteBtn').style.opacity = muted?.5:1; };
+
+/* ---- panneau d'essai ---- */
+$('#panelToggle').onclick=()=>$('#panel').classList.toggle('open');
+$('#segTheme').onclick=e=>{ const b=e.target.closest('button'); if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  applyLook(b.dataset.theme, currentFinish); };
+$('#segFinish').onclick=e=>{ const b=e.target.closest('button'); if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  applyLook(currentTheme, b.dataset.f);
+  $('#glowRange').value=BASE_EMISSIVE; $('#glowVal').textContent=BASE_EMISSIVE.toFixed(2); };
+$('#glowRange').oninput=e=>{ BASE_EMISSIVE=parseFloat(e.target.value); $('#glowVal').textContent=BASE_EMISSIVE.toFixed(2); };
 
 /* ===================== DÉMARRAGE ===================== */
 try{ initThree(); }catch(e){ console.error('Three init failed -> fallback', e); showFallback(); }
