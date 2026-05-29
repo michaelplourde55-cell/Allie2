@@ -229,8 +229,8 @@
     <div id="panelBody">
       <div class="pgrp"><label>Ambiance</label>
         <div class="pseg" id="segTheme">
-          <button data-theme="dark" class="on">Sombre</button>
-          <button data-theme="cream">Crème</button>
+          <button data-theme="dark">Sombre</button>
+          <button data-theme="cream" class="on">Crème</button>
         </div>
       </div>
       <div class="pgrp"><label>Fini métal</label>
@@ -300,7 +300,7 @@ $('#microcopy').textContent = REAL ? 'Appel vocal réel · micro requis' : 'Dém
 
 /* ===================== THREE.JS ===================== */
 let renderer, scene, camera, composer, bloom, pivot=null, medallion=null, medallionMat=null;
-let pmrem, keyLight, fillLight, ambLight;
+let pmrem, keyLight, fillLight, ambLight, frontLight;
 let W=innerWidth, H=innerHeight, DPR=Math.min(2, devicePixelRatio||1);
 const pointer={x:0,y:0,tx:0,ty:0};
 const HERO_Z=4.6, CALL_Z=4.0; let camZ=HERO_Z, camZTarget=HERO_Z;
@@ -318,12 +318,13 @@ function envTexture(theme){
     spot(x,300,150,260,'rgba(255,238,210,1)');     // key chaud fort
     spot(x,760,210,200,'rgba(255,150,60,.9)');      // rim orange
     spot(x,540,430,180,'rgba(120,90,255,.25)');     // contre-jour froid (sépare du fond)
-  }else{ // cream studio
+  }else{ // cream studio — CLAIR partout (un métal reflète l'env : pas de brun foncé en bas, sinon le A devient noir)
     const g=x.createLinearGradient(0,0,0,512);
-    g.addColorStop(0,'#fff6ec'); g.addColorStop(.45,'#ffe7c8'); g.addColorStop(.72,'#e8b787'); g.addColorStop(1,'#9a5a28');
+    g.addColorStop(0,'#ffffff'); g.addColorStop(.5,'#fff1df'); g.addColorStop(1,'#ffe1c2');
     x.fillStyle=g; x.fillRect(0,0,1024,512);
-    spot(x,330,150,300,'rgba(255,255,255,.95)');
-    spot(x,780,300,220,'rgba(255,210,160,.8)');
+    spot(x,330,150,320,'rgba(255,255,255,1)');
+    spot(x,760,300,240,'rgba(255,225,185,.95)');
+    spot(x,512,470,260,'rgba(255,210,170,.9)');   // sol clair -> bas du A reste lumineux
   }
   const t=new THREE.CanvasTexture(c); t.mapping=THREE.EquirectangularReflectionMapping; t.colorSpace=THREE.SRGBColorSpace; return t;
 }
@@ -339,15 +340,18 @@ function bgTexture(theme){
   const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
 }
 
-// Finis métal interchangeables (tu peux tous les essayer dans le panneau)
+// Finis métal interchangeables. NOTE: un metalness élevé masque la couleur de
+// base (le métal ne montre que ses reflets) -> chaque fini fixe sa propre
+// couleur ET un metalness qui laisse passer l'orange.
+const ORANGE='#EC5E00';
 const FINISHES = {
-  'chrome'  : { label:'Chromé poli',     metalness:1.0, roughness:0.08, clearcoat:1.0, clearcoatRoughness:0.06, env:1.6, emissive:0.06 },
-  'satin'   : { label:'Métal satiné',    metalness:0.9, roughness:0.35, clearcoat:0.3, clearcoatRoughness:0.4,  env:1.1, emissive:0.10 },
-  'enamel'  : { label:'Émail orange',    metalness:0.25,roughness:0.22, clearcoat:1.0, clearcoatRoughness:0.12, env:0.9, emissive:0.14 },
-  'bronze'  : { label:'Bronze chaud',    metalness:1.0, roughness:0.30, clearcoat:0.2, clearcoatRoughness:0.5,  env:1.2, emissive:0.10 },
-  'molten'  : { label:'Métal en fusion', metalness:0.7, roughness:0.25, clearcoat:0.5, clearcoatRoughness:0.3,  env:1.0, emissive:0.45 },
+  'chrome'  : { label:'Chromé',  color:'#FF7A2E', metalness:1.0, roughness:0.12, clearcoat:1.0, clearcoatRoughness:0.08, env:1.4, emissive:0.05 },
+  'satin'   : { label:'Satiné',  color:ORANGE,    metalness:0.55,roughness:0.38, clearcoat:0.35,clearcoatRoughness:0.4,  env:0.9, emissive:0.10 },
+  'enamel'  : { label:'Émail',   color:ORANGE,    metalness:0.0, roughness:0.22, clearcoat:1.0, clearcoatRoughness:0.12, env:0.6, emissive:0.12 },
+  'bronze'  : { label:'Bronze',  color:'#C9641A', metalness:0.85,roughness:0.34, clearcoat:0.2, clearcoatRoughness:0.5,  env:1.0, emissive:0.08 },
+  'molten'  : { label:'Fusion',  color:'#FF6A12', metalness:0.4, roughness:0.28, clearcoat:0.4, clearcoatRoughness:0.3,  env:0.8, emissive:0.42 },
 };
-let currentTheme='dark', currentFinish='satin';
+let currentTheme='cream', currentFinish='satin';
 
 function applyLook(theme, finish){
   currentTheme=theme; currentFinish=finish;
@@ -357,20 +361,23 @@ function applyLook(theme, finish){
   scene.background = bgTexture(theme);
   if(scene.environment) scene.environment.dispose?.();
   scene.environment = pmrem.fromEquirectangular(envTexture(theme)).texture;
-  // lumières (clés selon thème)
-  keyLight.color.set(theme==='dark'?0xffe8cc:0xfff0e0); keyLight.intensity = theme==='dark'?3.2:2.4;
-  fillLight.color.set(theme==='dark'?0xff7a2a:0xffd9b0); fillLight.intensity = theme==='dark'?1.2:0.8;
-  ambLight.intensity = theme==='dark'?0.18:0.5;
-  // matériau
+  // lumières (clés selon thème) + remplissage FRONTAL fort (peint la face du A)
+  keyLight.color.set(theme==='dark'?0xffe8cc:0xfff0e0); keyLight.intensity = theme==='dark'?2.6:2.2;
+  fillLight.color.set(theme==='dark'?0xff7a2a:0xffcaa0); fillLight.intensity = theme==='dark'?1.0:0.9;
+  ambLight.intensity = theme==='dark'?0.35:0.8;
+  frontLight.intensity = theme==='dark'?1.4:1.9;   // face avant toujours éclairée
+  // matériau (couleur PROPRE à chaque fini -> l'orange ne disparaît plus)
   const f=FINISHES[finish];
   if(medallionMat){
+    medallionMat.color.set(f.color);
+    medallionMat.emissive.set(f.color);
     medallionMat.metalness=f.metalness; medallionMat.roughness=f.roughness;
     medallionMat.clearcoat=f.clearcoat; medallionMat.clearcoatRoughness=f.clearcoatRoughness;
     medallionMat.envMapIntensity=f.env;
     BASE_EMISSIVE = f.emissive;
   }
   // bloom plus fort en sombre
-  if(bloom){ bloom.strength = (theme==='dark'?1.1:0.6); }
+  if(bloom){ bloom.strength = (theme==='dark'?1.1:0.55); }
 }
 let BASE_EMISSIVE = 0.10;
 
@@ -387,9 +394,10 @@ function initThree(){
   camera=new THREE.PerspectiveCamera(35, W/H, 0.1, 100); camera.position.set(0,0,HERO_Z);
 
   // lumières (réglées par applyLook selon le thème)
-  keyLight=new THREE.DirectionalLight(0xffe8cc, 3.2); keyLight.position.set(-3,4,5); scene.add(keyLight);
-  fillLight=new THREE.DirectionalLight(0xff7a2a, 1.2); fillLight.position.set(4,-1,3); scene.add(fillLight);
-  ambLight=new THREE.AmbientLight(0xffe8cf, 0.18); scene.add(ambLight);
+  keyLight=new THREE.DirectionalLight(0xffe8cc, 2.6); keyLight.position.set(-3,4,5); scene.add(keyLight);
+  fillLight=new THREE.DirectionalLight(0xff7a2a, 1.0); fillLight.position.set(4,-1,3); scene.add(fillLight);
+  frontLight=new THREE.DirectionalLight(0xffffff, 1.4); frontLight.position.set(0,0,6); scene.add(frontLight); // face avant
+  ambLight=new THREE.AmbientLight(0xffe8cf, 0.35); scene.add(ambLight);
 
   pivot=new THREE.Group(); scene.add(pivot);
 
