@@ -236,8 +236,8 @@
       <div class="pgrp"><label>Fini métal</label>
         <div class="pseg pwrap" id="segFinish">
           <button data-f="chrome">Chromé</button>
-          <button data-f="satin" class="on">Satiné</button>
-          <button data-f="enamel">Émail</button>
+          <button data-f="satin">Satiné</button>
+          <button data-f="enamel" class="on">Émail</button>
           <button data-f="bronze">Bronze</button>
           <button data-f="molten">Fusion</button>
         </div>
@@ -318,13 +318,15 @@ function envTexture(theme){
     spot(x,300,150,260,'rgba(255,238,210,1)');     // key chaud fort
     spot(x,760,210,200,'rgba(255,150,60,.9)');      // rim orange
     spot(x,540,430,180,'rgba(120,90,255,.25)');     // contre-jour froid (sépare du fond)
-  }else{ // cream studio — CLAIR partout (un métal reflète l'env : pas de brun foncé en bas, sinon le A devient noir)
+  }else{ // cream studio — un MÉTAL n'est éclairé QUE par l'env : il doit être
+    // CLAIR à 360° (base haute uniforme), sinon le A tombe au noir.
+    x.fillStyle='#f6ead9'; x.fillRect(0,0,1024,512);          // base claire partout
     const g=x.createLinearGradient(0,0,0,512);
-    g.addColorStop(0,'#ffffff'); g.addColorStop(.5,'#fff1df'); g.addColorStop(1,'#ffe1c2');
+    g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(.55,'rgba(255,241,223,.6)'); g.addColorStop(1,'rgba(255,225,190,.7)');
     x.fillStyle=g; x.fillRect(0,0,1024,512);
-    spot(x,330,150,320,'rgba(255,255,255,1)');
-    spot(x,760,300,240,'rgba(255,225,185,.95)');
-    spot(x,512,470,260,'rgba(255,210,170,.9)');   // sol clair -> bas du A reste lumineux
+    spot(x,330,140,340,'rgba(255,255,255,1)');
+    spot(x,770,300,260,'rgba(255,228,190,1)');
+    spot(x,512,470,300,'rgba(255,236,210,1)');
   }
   const t=new THREE.CanvasTexture(c); t.mapping=THREE.EquirectangularReflectionMapping; t.colorSpace=THREE.SRGBColorSpace; return t;
 }
@@ -345,13 +347,13 @@ function bgTexture(theme){
 // couleur ET un metalness qui laisse passer l'orange.
 const ORANGE='#EC5E00';
 const FINISHES = {
-  'chrome'  : { label:'Chromé',  color:'#FF7A2E', metalness:1.0, roughness:0.12, clearcoat:1.0, clearcoatRoughness:0.08, env:1.4, emissive:0.05 },
-  'satin'   : { label:'Satiné',  color:ORANGE,    metalness:0.55,roughness:0.38, clearcoat:0.35,clearcoatRoughness:0.4,  env:0.9, emissive:0.10 },
-  'enamel'  : { label:'Émail',   color:ORANGE,    metalness:0.0, roughness:0.22, clearcoat:1.0, clearcoatRoughness:0.12, env:0.6, emissive:0.12 },
-  'bronze'  : { label:'Bronze',  color:'#C9641A', metalness:0.85,roughness:0.34, clearcoat:0.2, clearcoatRoughness:0.5,  env:1.0, emissive:0.08 },
-  'molten'  : { label:'Fusion',  color:'#FF6A12', metalness:0.4, roughness:0.28, clearcoat:0.4, clearcoatRoughness:0.3,  env:0.8, emissive:0.42 },
+  'chrome'  : { label:'Chromé',  color:'#FF7A2E', metalness:1.0, roughness:0.14, clearcoat:1.0, clearcoatRoughness:0.10, env:2.2, emissive:0.05 },
+  'satin'   : { label:'Satiné',  color:ORANGE,    metalness:0.5, roughness:0.42, clearcoat:0.35,clearcoatRoughness:0.4,  env:1.6, emissive:0.14 },
+  'enamel'  : { label:'Émail',   color:ORANGE,    metalness:0.0, roughness:0.30, clearcoat:0.9, clearcoatRoughness:0.14, env:1.2, emissive:0.20 },
+  'bronze'  : { label:'Bronze',  color:'#D26A1C', metalness:0.8, roughness:0.36, clearcoat:0.2, clearcoatRoughness:0.5,  env:1.8, emissive:0.12 },
+  'molten'  : { label:'Fusion',  color:'#FF6A12', metalness:0.35, roughness:0.30, clearcoat:0.4, clearcoatRoughness:0.3,  env:1.4, emissive:0.48 },
 };
-let currentTheme='cream', currentFinish='satin';
+let currentTheme='cream', currentFinish='enamel';
 
 function applyLook(theme, finish){
   currentTheme=theme; currentFinish=finish;
