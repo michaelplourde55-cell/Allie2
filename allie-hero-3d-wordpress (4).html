@@ -1,0 +1,499 @@
+<!--
+  ====================================================================
+  ALLIE — HERO 3D VIVANT (production, intégrable WordPress)
+  ====================================================================
+  - Three.js autonome (PAS de build, PAS de React) -> se colle dans un
+    bloc HTML personnalisé WordPress / widget HTML Elementor.
+  - Charge ton GLB optimisé (médaillon A+C), matériau métallique chaud,
+    environnement chaud (réflexions), bloom photographique (le "glow").
+  - Énergie audio-réactive : pilotée par la VRAIE voix d'Allie via
+    ElevenLabs getOutputByteFrequencyData(). Tant qu'aucun AGENT_ID
+    n'est fourni -> mode "démo simulée" (identique visuellement).
+  - Aucune waveform sous le A (demandé) : la voix passe par les ondes
+    autour du médaillon.
+
+  ⚠️ POUR LE TESTER EN LOCAL : sers le dossier par HTTP (les modules ES
+     et le fetch du GLB ne marchent pas en file://). Exemple :
+        python -m http.server 8080   ->   http://localhost:8080
+  ⚠️ Ne s'affiche PAS dans l'aperçu du chat (le sandbox bloque le CDN 3D).
+  ====================================================================
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- ============ THREE.JS (CDN, sans build) ============ -->
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+}}
+</script>
+
+<style>
+  :root{
+    --cream:#F4ECDF; --cream-2:#FBF5EC; --champagne:#FFF4E9;
+    --ink:#2A231E; --ink-soft:#6E6155; --ink-faint:#A99C8D;
+    --line:rgba(90,62,34,.12); --orange:#EC5E00; --orange-deep:#7A2B00;
+    --card:rgba(255,251,244,.72); --card-line:rgba(120,84,48,.12);
+    --shadow:0 24px 60px -28px rgba(122,43,0,.32); --energy:0.22;
+    --glyph-w:'Fraunces', Georgia, serif; --ui:'Hanken Grotesk', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:var(--ui);color:var(--ink);overflow:hidden;
+    background:radial-gradient(120% 90% at 50% 42%, var(--champagne) 0%, var(--cream-2) 40%, var(--cream) 100%);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  #stage{position:fixed;inset:0}
+
+  /* canvas 3D (le médaillon vivant) + canvas atmosphère (ondes/particules) */
+  #three{position:absolute;inset:0;z-index:2;display:block}
+  #fx{position:absolute;inset:0;z-index:3;pointer-events:none;mix-blend-mode:screen}
+  #fallbackA{position:absolute;inset:0;z-index:2;display:none;place-items:center}
+  #fallbackA svg{width:min(52vh,520px)}
+
+  #stage::after{content:"";position:absolute;inset:0;z-index:6;pointer-events:none;opacity:.05;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    mix-blend-mode:multiply;}
+
+  /* ---- NAV ---- */
+  .nav{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;
+    justify-content:space-between;padding:26px clamp(24px,4vw,64px);
+    transition:opacity .42s ease,transform .42s ease,filter .42s ease}
+  .brand{font-family:var(--glyph-w);font-weight:600;font-size:26px;letter-spacing:-.01em}
+  .brand b{color:var(--orange)}
+  .menu{display:flex;gap:30px}
+  .menu a{color:var(--ink-soft);text-decoration:none;font-size:14.5px;font-weight:500;transition:color .2s;cursor:pointer}
+  .menu a:hover{color:var(--ink)}
+  .nav-cta{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(180deg,#FF7A1F,#EC5E00);
+    color:#fff;border:none;border-radius:999px;padding:11px 22px;font-family:var(--ui);font-weight:600;
+    font-size:14.5px;cursor:pointer;box-shadow:0 12px 26px -12px rgba(236,94,0,.6);transition:transform .2s,box-shadow .2s}
+  .nav-cta:hover{transform:translateY(-1px)}
+
+  /* ---- COLONNE GAUCHE ---- */
+  .col-left{position:absolute;z-index:4;top:50%;left:clamp(24px,5vw,84px);transform:translateY(-50%);
+    max-width:470px;transition:opacity .42s ease,transform .5s cubic-bezier(.4,0,.2,1),filter .42s ease}
+  .badge{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--card-line);
+    background:rgba(255,251,244,.6);border-radius:999px;padding:7px 14px;font-size:11.5px;font-weight:600;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);backdrop-filter:blur(8px)}
+  .badge i{width:7px;height:7px;border-radius:50%;background:var(--orange);box-shadow:0 0 10px rgba(236,94,0,.8)}
+  h1{font-family:var(--glyph-w);font-weight:600;font-size:clamp(46px,6.2vw,90px);line-height:.97;
+    letter-spacing:-.025em;margin:26px 0 22px}
+  h1 .o{color:var(--orange)} h1 em{font-style:italic;color:var(--orange)}
+  .sub{font-size:clamp(16px,1.25vw,19px);line-height:1.55;color:var(--ink-soft);max-width:34ch}
+  .cta{display:inline-flex;align-items:center;gap:11px;margin-top:34px;background:linear-gradient(180deg,#FF7A1F,#EC5E00);
+    color:#fff;border:none;border-radius:999px;padding:18px 34px;font-family:var(--ui);font-weight:600;font-size:17px;
+    cursor:pointer;box-shadow:0 20px 40px -16px rgba(236,94,0,.65);transition:transform .22s cubic-bezier(.4,0,.2,1),box-shadow .22s}
+  .cta:hover{transform:translateY(-2px);box-shadow:0 26px 48px -16px rgba(236,94,0,.78)}
+  .microcopy{display:flex;align-items:center;gap:8px;margin-top:18px;font-size:13.5px;color:var(--ink-faint)}
+  .microcopy i{width:6px;height:6px;border-radius:50%;background:var(--orange);animation:livedot 2.4s ease-in-out infinite}
+  @keyframes livedot{0%,100%{opacity:.4}50%{opacity:1}}
+
+  /* ---- CARTE DÉMO (hero) ---- */
+  .demo-card{position:absolute;z-index:4;top:50%;right:clamp(24px,5vw,84px);transform:translateY(-50%);
+    width:300px;padding:22px;background:var(--card);border:1px solid var(--card-line);border-radius:22px;
+    box-shadow:var(--shadow);backdrop-filter:blur(14px);
+    transition:opacity .42s ease,transform .5s cubic-bezier(.4,0,.2,1),filter .42s ease}
+  .dc-head{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:700;
+    letter-spacing:.13em;text-transform:uppercase;color:var(--ink-faint)}
+  .dc-title{font-family:var(--glyph-w);font-size:19px;margin:14px 0 16px}
+  .bubble{font-size:14px;line-height:1.4;padding:10px 13px;border-radius:14px;margin-bottom:8px}
+  .bubble .who{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--ink-faint);
+    margin-bottom:3px;text-transform:uppercase}
+  .b-client{background:rgba(120,84,48,.07)} .b-allie{background:rgba(236,94,0,.09)}
+  .dc-res{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:flex;align-items:center;
+    justify-content:space-between;font-size:13.5px}
+  .dc-res .ok{width:22px;height:22px;border-radius:50%;background:var(--orange);display:grid;place-items:center;color:#fff}
+
+  /* ---- CHIPS ---- */
+  .chips{position:absolute;z-index:4;left:0;right:0;bottom:38px;display:flex;justify-content:center;
+    gap:clamp(20px,4vw,72px);padding:0 clamp(24px,5vw,84px);
+    transition:opacity .42s ease,transform .42s ease,filter .42s ease}
+  .chip{display:flex;gap:13px;max-width:240px}
+  .chip .ic{flex:none;width:34px;height:34px;border-radius:10px;border:1px solid var(--card-line);
+    display:grid;place-items:center;color:var(--orange);background:rgba(255,251,244,.5)}
+  .chip h4{font-family:var(--glyph-w);font-weight:600;font-size:16px;margin-bottom:2px}
+  .chip p{font-size:12.5px;color:var(--ink-soft);line-height:1.35}
+
+  /* ---- MODE APPEL ---- */
+  .call-only{opacity:0;pointer-events:none;transition:opacity .5s ease .15s}
+  .call-label{position:absolute;z-index:4;top:7%;left:50%;transform:translateX(-50%);display:flex;
+    align-items:center;gap:9px;font-size:13.5px;font-weight:600;color:var(--ink-soft)}
+  .call-label i{width:8px;height:8px;border-radius:50%;background:#E5484D;animation:livedot 1.6s ease-in-out infinite}
+  .transcript{position:absolute;z-index:4;top:50%;right:clamp(24px,5vw,84px);transform:translateY(-50%);
+    width:330px;max-height:64vh;overflow:hidden;padding:22px;background:var(--card);border:1px solid var(--card-line);
+    border-radius:22px;box-shadow:var(--shadow);backdrop-filter:blur(14px)}
+  .tr-head{font-size:11px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:14px}
+  .tr-line{font-size:14.5px;line-height:1.45;margin-bottom:12px;opacity:0;transform:translateY(6px);animation:rise .4s ease forwards}
+  .tr-line .who{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:2px}
+  .tr-line.allie .who{color:var(--orange)}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .tr-res{margin-top:6px;padding:14px;border-radius:14px;background:rgba(236,94,0,.08);border:1px solid rgba(236,94,0,.16);
+    opacity:0;transform:translateY(6px);animation:rise .5s ease forwards}
+  .tr-res .t{font-family:var(--glyph-w);font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .tr-res .t .ok{width:20px;height:20px;border-radius:50%;background:var(--orange);display:grid;place-items:center;color:#fff}
+  .tr-res p{font-size:13px;color:var(--ink-soft)}
+  .controls{position:absolute;z-index:4;bottom:8%;left:50%;transform:translateX(-50%);display:flex;gap:26px}
+  .ctrl{display:flex;flex-direction:column;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-soft)}
+  .ctrl button{width:58px;height:58px;border-radius:50%;border:1px solid var(--card-line);background:rgba(255,251,244,.7);
+    color:var(--ink);cursor:pointer;display:grid;place-items:center;transition:transform .18s;backdrop-filter:blur(8px)}
+  .ctrl button:hover{transform:translateY(-2px)}
+  .ctrl.hangup button{background:linear-gradient(180deg,#FF6B5E,#E5484D);color:#fff;border:none;
+    box-shadow:0 14px 30px -12px rgba(229,72,77,.6);width:64px;height:64px}
+
+  #stage.mode-call .nav,#stage.mode-call .col-left,#stage.mode-call .demo-card,#stage.mode-call .chips{
+    opacity:0;transform:translateY(8px);filter:blur(6px);pointer-events:none}
+  #stage.mode-call .call-only{opacity:1;pointer-events:auto}
+
+  @media (max-width:1080px){
+    .demo-card,.transcript,.chips{display:none}
+    .col-left{left:50%;transform:translate(-50%,-50%);text-align:center;top:26%}
+  }
+</style>
+
+<div id="stage" class="mode-hero">
+  <canvas id="three"></canvas>
+  <canvas id="fx"></canvas>
+
+  <!-- repli si la 3D ne charge pas : un A SVG métallique -->
+  <div id="fallbackA"><svg viewBox="0 0 520 520">
+    <defs><linearGradient id="m" x1="14%" y1="6%" x2="86%" y2="96%">
+      <stop offset="0%" stop-color="#7A2B00"/><stop offset="26%" stop-color="#EC5E00"/>
+      <stop offset="50%" stop-color="#FFB877"/><stop offset="74%" stop-color="#EC5E00"/>
+      <stop offset="100%" stop-color="#7A2B00"/></linearGradient></defs>
+    <circle cx="260" cy="260" r="205" fill="none" stroke="url(#m)" stroke-width="13"
+      stroke-linecap="round" stroke-dasharray="1208 80" transform="rotate(58 260 260)"/>
+    <text x="260" y="372" font-size="430" text-anchor="middle"
+      font-family="Fraunces,serif" font-weight="600" fill="url(#m)">A</text>
+  </svg></div>
+
+  <nav class="nav">
+    <div class="brand">allie<b>.</b></div>
+    <div class="menu"><a>Pourquoi Allie</a><a>Fonctionnalités</a><a>Industries</a><a>Tarifs</a><a>Ressources</a></div>
+    <button class="nav-cta" id="navCall">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      Parler à Allie</button>
+  </nav>
+
+  <div class="col-left">
+    <span class="badge"><i></i>Réceptionniste IA québécoise</span>
+    <h1>Chaque appel compte<span class="o">.</span><br><em>Allie</em> répond<span class="o">.</span></h1>
+    <p class="sub">Une réceptionniste IA québécoise qui répond à vos appels, prend vos réservations et aide vos clients — même quand votre équipe est occupée.</p>
+    <button class="cta" id="heroCall">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      Appeler Allie maintenant</button>
+    <div class="microcopy"><i></i><span id="microcopy">Démo vocale en direct · ~90 secondes</span></div>
+  </div>
+
+  <aside class="demo-card">
+    <div class="dc-head"><span>Aperçu de la démo</span>
+      <svg width="22" height="12" viewBox="0 0 22 12" stroke="var(--orange)" stroke-width="2" stroke-linecap="round"><path d="M1 6h0M5 3v6M9 1v10M13 4v4M17 2v8M21 6h0"/></svg></div>
+    <div class="dc-title">Exemple de conversation</div>
+    <div class="bubble b-client"><span class="who">Client</span>Bonjour, une table pour 4 ce soir ?</div>
+    <div class="bubble b-allie"><span class="who">Allie</span>Bien sûr. Vers quelle heure ?</div>
+    <div class="dc-res"><span>Réservation créée — 19 h 30</span>
+      <span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span></div>
+  </aside>
+
+  <div class="chips">
+    <div class="chip"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div><h4>Rush du midi</h4><p>Allie répond pendant que votre équipe sert.</p></div></div>
+    <div class="chip"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg></div><div><h4>Après les heures</h4><p>Elle prend le message ou la réservation.</p></div></div>
+    <div class="chip"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></div><div><h4>Client en attente</h4><p>Elle répond sans laisser sonner.</p></div></div>
+    <div class="chip"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/><path d="m16 2 5 5M21 2l-5 5"/></svg></div><div><h4>Besoin d'un humain</h4><p>Elle transfère à votre équipe.</p></div></div>
+  </div>
+
+  <div class="call-label call-only"><i></i>En direct · Appel en cours avec Allie</div>
+  <aside class="transcript call-only"><div class="tr-head">Transcription en direct</div><div id="trBody"></div></aside>
+  <div class="controls call-only">
+    <div class="ctrl"><button id="muteBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3"/></svg></button><span id="muteLbl">Micro activé</span></div>
+    <div class="ctrl"><button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg></button>Haut-parleur</div>
+    <div class="ctrl hangup"><button id="hangup"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 14.3a16 16 0 0 1-3-4.4l1.3-1.6a2 2 0 0 0 .3-2.2A12 12 0 0 1 8.6 3 2 2 0 0 0 6.7 1.7H4A2 2 0 0 0 2 4a18 18 0 0 0 .3 3"/><path d="M22 2 2 22"/><path d="M14 9.5a16 16 0 0 1 6.8 4 2 2 0 0 1 .2 2.7l-.9 1.1"/></svg></button>Raccrocher</div>
+    <div class="ctrl"><button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 10h12M4 15h16M4 20h8"/></svg></button>Transcription</div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+/* ============================ CONFIG ============================ */
+const CONFIG = {
+  // Ton médaillon LISSÉ (Tripo lissé en amont) — à téléverser dans ton dépôt Allie2.
+  GLB_URL: 'https://raw.githubusercontent.com/michaelplourde55-cell/Allie2/main/allie_A_3mo_lisse.glb',
+
+  // Vrai agent ElevenLabs (agent public -> agentId suffit).
+  // Vide ('') -> bascule en démo simulée (visuellement identique).
+  AGENT_ID: 'agent_1001kmdpqbpjfsdv6tnzrkw0vkxs',
+  EL_CONNECTION: 'webrtc',     // 'webrtc' (recommandé) ou 'websocket'
+
+  // ---- ambiance / matériau (métal calme, pas "bonbon") ----
+  BLOOM_STRENGTH: 0.6, BLOOM_RADIUS: 0.55, BLOOM_THRESHOLD: 0.95,
+  EMISSIVE_BASE: 0.10, METALNESS: 0.5, ROUGHNESS: 0.42,
+};
+
+/* ===================== ÉTAT GLOBAL ===================== */
+const $ = s => document.querySelector(s);
+const stage=$('#stage'), trBody=$('#trBody');
+let state='idle', speaker=null;          // idle|hover|call ; allie|client|null
+let energy=0.22, callAmp=0, callToken=0;
+let conv=null;                            // session ElevenLabs (si réelle)
+const REAL = !!CONFIG.AGENT_ID;
+$('#microcopy').textContent = REAL ? 'Appel vocal réel · micro requis' : 'Démo vocale simulée · ~90 secondes';
+
+/* ===================== THREE.JS ===================== */
+let renderer, scene, camera, composer, bloom, pivot=null, medallion=null, medallionMat=null;
+let W=innerWidth, H=innerHeight, DPR=Math.min(2, devicePixelRatio||1);
+const pointer={x:0,y:0,tx:0,ty:0};
+const HERO_Z=4.6, CALL_Z=4.0; let camZ=HERO_Z, camZTarget=HERO_Z;
+
+function warmEnvTexture(){
+  // environnement équirectangulaire chaud (réflexions ambrées, sans fichier HDRI)
+  const c=document.createElement('canvas'); c.width=1024; c.height=512;
+  const x=c.getContext('2d');
+  const g=x.createLinearGradient(0,0,0,512);
+  g.addColorStop(0,'#fff6ec'); g.addColorStop(.45,'#ffd9ab'); g.addColorStop(.7,'#c9742f'); g.addColorStop(1,'#3a1c08');
+  x.fillStyle=g; x.fillRect(0,0,1024,512);
+  // "key light" douce
+  const k=x.createRadialGradient(360,150,10,360,150,260);
+  k.addColorStop(0,'rgba(255,255,255,.95)'); k.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=k; x.fillRect(0,0,1024,512);
+  const t=new THREE.CanvasTexture(c); t.mapping=THREE.EquirectangularReflectionMapping; t.colorSpace=THREE.SRGBColorSpace;
+  return t;
+}
+function bgTexture(){
+  const c=document.createElement('canvas'); c.width=256; c.height=256; const x=c.getContext('2d');
+  const g=x.createRadialGradient(128,108,8,128,108,184);
+  g.addColorStop(0,'#FFF4E9'); g.addColorStop(.4,'#FBF5EC'); g.addColorStop(1,'#F1E7D7');
+  x.fillStyle=g; x.fillRect(0,0,256,256);
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
+}
+
+function initThree(){
+  renderer=new THREE.WebGLRenderer({canvas:$('#three'), antialias:true});
+  renderer.setPixelRatio(DPR); renderer.setSize(W,H);
+  renderer.toneMapping=THREE.NeutralToneMapping; renderer.toneMappingExposure=1.0;  // Neutral = garde le orange de la marque (ACES le virait au jaune)
+  renderer.outputColorSpace=THREE.SRGBColorSpace;
+
+  scene=new THREE.Scene(); scene.background=bgTexture();
+  const pmrem=new THREE.PMREMGenerator(renderer);
+  scene.environment=pmrem.fromEquirectangular(warmEnvTexture()).texture;
+
+  camera=new THREE.PerspectiveCamera(35, W/H, 0.1, 100); camera.position.set(0,0,HERO_Z);
+
+  // lumières d'appoint chaudes (modèlent le biseau au-delà de l'env)
+  const key=new THREE.DirectionalLight(0xfff0e0, 2.4); key.position.set(-3,4,5); scene.add(key);
+  const fill=new THREE.DirectionalLight(0xffd9b0, 0.8); fill.position.set(4,-1,3); scene.add(fill);
+  scene.add(new THREE.AmbientLight(0xffe8cf, 0.5));
+
+  pivot=new THREE.Group(); scene.add(pivot);
+
+  // ---- chargement de TON médaillon (GLB meshopt) ----
+  const mat=new THREE.MeshPhysicalMaterial({
+    color:new THREE.Color('#EC5E00'), metalness:CONFIG.METALNESS, roughness:CONFIG.ROUGHNESS,
+    clearcoat:0.15, clearcoatRoughness:0.45, envMapIntensity:0.85,
+    emissive:new THREE.Color('#EC5E00'), emissiveIntensity:CONFIG.EMISSIVE_BASE,
+  });
+  medallionMat=mat;
+  const loader=new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  loader.load(CONFIG.GLB_URL, (gltf)=>{
+    medallion=gltf.scene;
+    medallion.traverse(o=>{ if(o.isMesh){ o.material=mat; o.castShadow=o.receiveShadow=false; } });
+    // recentrer + mettre à l'échelle (cadrage stable)
+    const box=new THREE.Box3().setFromObject(medallion);
+    const c=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3());
+    const s=2.0/Math.max(size.x,size.y);
+    medallion.scale.setScalar(s); medallion.position.set(-c.x*s,-c.y*s,-c.z*s);
+    pivot.add(medallion);
+    $('#fallbackA').style.display='none';
+  }, undefined, (err)=>{ console.warn('GLB introuvable -> repli SVG', err); showFallback(); });
+
+  // ---- post-process : bloom (le "glow") ----
+  composer=new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene,camera));
+  bloom=new UnrealBloomPass(new THREE.Vector2(W,H), CONFIG.BLOOM_STRENGTH, CONFIG.BLOOM_RADIUS, CONFIG.BLOOM_THRESHOLD);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+
+  addEventListener('pointermove', e=>{ pointer.tx=(e.clientX/W-.5); pointer.ty=(e.clientY/H-.5); });
+}
+function showFallback(){ $('#three').style.display='none'; $('#fallbackA').style.display='grid'; }
+
+function onResize(){
+  W=innerWidth; H=innerHeight; center.x=W/2; center.y=H*0.5; sizeFx();
+  if(!renderer) return;
+  renderer.setSize(W,H); composer.setSize(W,H); bloom.setSize(W,H);
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+}
+addEventListener('resize', onResize);
+
+/* ===================== ÉNERGIE (idle / voix) ===================== */
+function speechEnvelope(t){ const word=Math.max(0,Math.sin(t/300)); const syl=0.45+0.55*Math.sin(t/85);
+  return Math.min(1, word*syl + 0.18*Math.random()*word); }
+function avg(arr){ if(!arr||!arr.length) return 0; let s=0; for(let i=0;i<arr.length;i++)s+=arr[i]; return s/arr.length; }
+
+function targetEnergy(t){
+  if(state==='idle')  return 0.20+0.06*Math.sin(t/2200);
+  if(state==='hover') return 0.34+0.06*Math.sin(t/1700);
+  if(state==='call'){
+    if(REAL && conv){                          // vraie voix d'Allie
+      const out=conv.getOutputByteFrequencyData?.()||[]; const inp=conv.getInputByteFrequencyData?.()||[];
+      const o=avg(out)/255, i=avg(inp)/255;
+      callAmp=Math.max(o, i*0.7);
+      // qui parle ? -> d'après l'amplitude (sortie = Allie, entrée = client)
+      if(o>0.05 && o>=i) speaker='allie'; else if(i>0.06) speaker='client'; else speaker=null;
+      return 0.26+0.7*callAmp;
+    }
+    if(speaker==='allie')  return 0.34+0.62*speechEnvelope(t);
+    if(speaker==='client') return 0.16+0.05*Math.sin(t/1500);
+    return 0.26;
+  }
+  return 0.2;
+}
+
+/* ===================== ATMOSPHÈRE 2D (ondes/particules) ===================== */
+const fx=$('#fx'), fctx=fx.getContext('2d'); const center={x:W/2,y:H*0.5};
+let particles=[], rings=[], emitAcc=0;
+function sizeFx(){ fx.width=W*DPR; fx.height=H*DPR; fx.style.width=W+'px'; fx.style.height=H+'px';
+  fctx.setTransform(DPR,0,0,DPR,0,0); initParticles(); }
+function initParticles(){ particles=[]; for(let i=0;i<60;i++){ const a=Math.random()*Math.PI*2,
+  d=120+Math.random()*Math.min(W,H)*0.5; particles.push({x:center.x+Math.cos(a)*d,y:center.y+Math.sin(a)*d,
+  r:0.6+Math.random()*2.2,vy:-(0.08+Math.random()*0.22),vx:(Math.random()-0.5)*0.12,ph:Math.random()*6.28,
+  a:0.15+Math.random()*0.35}); } }
+function drawFx(now,dt){
+  fctx.clearRect(0,0,W,H);
+  const R=Math.min(W,H)*0.30*(0.85+energy*0.55);
+  let g=fctx.createRadialGradient(center.x,center.y,0,center.x,center.y,R);
+  g.addColorStop(0,`rgba(255,224,180,${0.5*energy+0.14})`); g.addColorStop(.4,`rgba(255,170,90,${0.26*energy+0.05})`);
+  g.addColorStop(1,'rgba(255,170,90,0)');
+  fctx.globalCompositeOperation='lighter'; fctx.fillStyle=g;
+  fctx.beginPath(); fctx.arc(center.x,center.y,R,0,6.2832); fctx.fill();
+  emitAcc+=dt; const interval=(state==='call'&&(speaker==='allie'||callAmp>0.4))?280:2400;
+  if(emitAcc>interval){ emitAcc=0; rings.push({life:0,strong:energy>0.5,seed:Math.random()*1000,baseA:energy>0.5?0.5:0.32}); }
+  for(let i=rings.length-1;i>=0;i--){ const r=rings[i]; r.life+=dt/2600; if(r.life>=1){rings.splice(i,1);continue;}
+    const rr=90+r.life*Math.min(W,H)*0.34, al=(1-r.life)*r.baseA*(0.5+energy); fctx.beginPath();
+    for(let s=0;s<=72;s++){ const a=s/72*6.2832, w=1+0.018*Math.sin(a*3+r.seed)+0.012*Math.sin(a*7-r.seed);
+      const x=center.x+Math.cos(a)*rr*w,y=center.y+Math.sin(a)*rr*w; s?fctx.lineTo(x,y):fctx.moveTo(x,y); }
+    fctx.strokeStyle=`rgba(255,150,70,${al})`; fctx.lineWidth=r.strong?2.2:1.3; fctx.stroke(); }
+  for(const p of particles){ p.ph+=0.01; p.x+=p.vx+Math.sin(p.ph)*0.06; p.y+=p.vy*(1+energy*1.4);
+    if(p.y<center.y-Math.min(W,H)*0.55){ p.y=center.y+Math.min(W,H)*0.4+Math.random()*60; p.x=center.x+(Math.random()-.5)*Math.min(W,H)*0.7; }
+    const tw=0.6+0.4*Math.sin(p.ph*2); fctx.beginPath(); fctx.fillStyle=`rgba(255,180,110,${p.a*tw*(0.6+energy*0.6)})`;
+    fctx.shadowBlur=6; fctx.shadowColor='rgba(255,160,80,.7)'; fctx.arc(p.x,p.y,p.r,0,6.2832); fctx.fill(); }
+  fctx.shadowBlur=0; fctx.globalCompositeOperation='source-over';
+}
+
+/* ===================== BOUCLE ===================== */
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(40,now-last); last=now;
+  energy+=(targetEnergy(now)-energy)*0.09;
+  document.documentElement.style.setProperty('--energy',energy.toFixed(3));
+
+  if(renderer){
+    // parallaxe douce + respiration + réaction voix sur le médaillon
+    pointer.x+=(pointer.tx-pointer.x)*0.05; pointer.y+=(pointer.ty-pointer.y)*0.05;
+    if(pivot){
+      const breathe=1+0.022*Math.sin(now/2400)+ (state==='call'? energy*0.06 : 0);
+      pivot.scale.setScalar(breathe);
+      pivot.rotation.y = Math.PI + pointer.x*0.5 + Math.sin(now/5200)*0.06;  // +PI = face avant
+      pivot.rotation.x = -pointer.y*0.4 + Math.sin(now/6100)*0.03;
+    }
+    if(medallionMat){ medallionMat.emissiveIntensity=CONFIG.EMISSIVE_BASE+energy*0.8; }
+    bloom.strength=CONFIG.BLOOM_STRENGTH+energy*0.5;
+    camZTarget = state==='call'?CALL_Z:HERO_Z; camZ+=(camZTarget-camZ)*0.06; camera.position.z=camZ;
+    composer.render();
+  }
+  drawFx(now,dt);
+  requestAnimationFrame(frame);
+}
+
+/* ===================== APPEL : RÉEL (ElevenLabs) ou SIMULÉ ===================== */
+const SCRIPT=[
+  {who:'client',text:"Bonjour, je voudrais réserver une table pour 4 personnes ce soir."},
+  {who:'allie', text:"Bien sûr, avec plaisir ! Vers quelle heure souhaitez-vous ?"},
+  {who:'client',text:"Vers 19 h 30."},
+  {who:'allie', text:"Parfait, c'est noté. À quel nom ?"},
+  {who:'client',text:"Mathieu Tremblay."},
+  {who:'allie', text:"Merci ! Votre table pour 4 est réservée ce soir à 19 h 30.",result:true},
+];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function addLine(who,text){
+  const row=document.createElement('div'); row.className='tr-line '+(who==='allie'?'allie':'client');
+  row.innerHTML='<span class="who">'+(who==='allie'?'Allie':'Client')+'</span><span class="txt"></span>';
+  trBody.appendChild(row); return row.querySelector('.txt');
+}
+function addResult(){ const r=document.createElement('div'); r.className='tr-res';
+  r.innerHTML='<div class="t"><span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Réservation créée</div><p>4 personnes · 19 h 30 · ce soir<br>Nom : Mathieu Tremblay</p>';
+  trBody.appendChild(r); }
+
+async function startCall(){
+  if(state==='call') return;
+  state='call'; speaker=null; trBody.innerHTML='';
+  stage.classList.remove('mode-hero'); stage.classList.add('mode-call');
+  const token=++callToken;
+
+  if(REAL){
+    // ---- VRAI appel ElevenLabs ----  doc: elevenlabs.io/docs/agents-platform/libraries/java-script
+    // (agent public -> agentId suffit. Si l'agent exige une auth, il faudra un
+    //  conversation token généré côté serveur — voir la doc "private agents".)
+    try{
+      const { Conversation } = await import('https://cdn.jsdelivr.net/npm/@elevenlabs/client/+esm');
+      conv = await Conversation.startSession({
+        agentId: CONFIG.AGENT_ID,
+        connectionType: CONFIG.EL_CONNECTION,
+        onConnect: () => { /* connecté — le "qui parle" est déduit de l'audio */ },
+        onMessage: (m) => {
+          const text = (m && (m.message ?? m.text)) || (typeof m==='string' ? m : '');
+          const src  = m && m.source;            // 'user' | 'ai'
+          if(text) addLine(src==='user'?'client':'allie').textContent = text;
+        },
+        onDisconnect: () => { if(token===callToken) endCall(); },
+        onError: (e) => { console.error('ElevenLabs:', e); },
+      });
+    }catch(e){ console.error('Échec session ElevenLabs', e); }
+    return;
+  }
+
+  // ---- DÉMO SIMULÉE ----
+  await sleep(700);
+  for(const line of SCRIPT){
+    if(token!==callToken) return;
+    speaker=line.who; const txt=addLine(line.who);
+    for(let i=0;i<line.text.length;i++){ if(token!==callToken) return; txt.textContent+=line.text[i]; await sleep(22); }
+    if(line.result){ await sleep(400); if(token!==callToken) return; addResult(); }
+    await sleep(line.who==='allie'?650:450);
+    speaker = line.who==='allie' ? 'client' : speaker;
+  }
+  speaker=null;
+}
+async function endCall(){
+  callToken++; state='idle'; speaker=null; callAmp=0;
+  try{ await conv?.endSession?.(); }catch(e){} conv=null;
+  muted=false; const ml=$('#muteLbl'); if(ml) ml.textContent='Micro activé'; const mb=$('#muteBtn'); if(mb) mb.style.opacity=1;
+  stage.classList.remove('mode-call'); stage.classList.add('mode-hero');
+  setTimeout(()=>{ trBody.innerHTML=''; }, 600);
+}
+
+/* ===================== BRANCHEMENTS ===================== */
+$('#heroCall').onclick=startCall; $('#navCall').onclick=startCall; $('#hangup').onclick=endCall;
+$('#three').addEventListener('click', ()=>{ if(state!=='call') startCall(); });
+$('#three').addEventListener('mouseenter', ()=>{ if(state==='idle') state='hover'; });
+$('#three').addEventListener('mouseleave', ()=>{ if(state==='hover') state='idle'; });
+let muted=false;
+$('#muteBtn').onclick=()=>{ muted=!muted; try{ conv?.setMicMuted?.(muted); }catch(e){}
+  $('#muteLbl').textContent = muted?'Micro coupé':'Micro activé'; $('#muteBtn').style.opacity = muted?.5:1; };
+
+/* ===================== DÉMARRAGE ===================== */
+try{ initThree(); }catch(e){ console.error('Three init failed -> fallback', e); showFallback(); }
+sizeFx();
+let started=false;
+function start(){ if(started) return; started=true; requestAnimationFrame(frame); }
+(document.fonts?.ready || Promise.resolve()).then(start);
+setTimeout(start, 500); // filet de sécurité si les fonts ne résolvent jamais
+</script>
